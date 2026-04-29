@@ -1,0 +1,67 @@
+nota interrupt
+o que é, tipos, utilização e exemplos
+exemplos: detect button press, PIR sensor -> detect motion
+interrupts são uteis para fazer coisas acontecerem automaticamente no MCU, ajudam com problemas de timming e automação
+mecanismos para responder para eventos externos 
+reação rapida do esp32 para mudanças sem checagens continuas do valor de variaveis ou de pins 
+-- polling?
+o que são interrupts? (interrupções)
+são sinais que pausam a execução normal do programa para lidar com eventos especificos
+quando acontece, o processador para a execução do programa principal para executar uma tarefa e depois voltar a exec normal
+-> interrupt handling routine^ ( interrupt service routine, ISR )
+main program -> interrupt -> interrupt handling routine -> end of handling routine -> main program 
+em resumo, com interrupts eu nao preciso ficar checando toda hora valores ou pins, quando uma mudança é detectada, uma função de callback é chamada (ativada, provocada) 
+-- porque é util? função de callback?
+
+TIPOS DE INTERRUPTS 
+- external interrupts ( hardware based ) e timer interrupts ( software interrupts )
+EI -> ativados por sinais externos e detectado pelos GPIOs do esp32, como o pressionamento de um bottão ou a leitura de um sensor, é associado com um especifico pin GPIO, quando um pin é provocado, um ISR é ativado 
+TI -> iniciado baseado em intervalos de tempo, habilitando ações periódicas 
+
+USANDO INTERRUPTS COM ESP32 
+com arduino IDE -> usar a função "attachInterrupt()", que aceita como argumentos: o pin GPIO, o nome da função que vai ser executada e o modo 
+ex: attachInterrupt(GPIO, callback_function, mode);
+essa instrução deve ser adicionada no setup() do meu codigo do arduino
+entendendo os argumentos dessa função: 
+GPIO interrupt 
+é o primeiro argumento - o numero do GPIO que vai ser utilizado para ativar o ISR 
+ex: digitalPinToInterrupt(27) 
+-- ue? mas n era na attach? 
+CALLBACK function 
+é a função que vai ser ativada 
+existem algumas regras na hora de definir minha ISR (callback function) 
+-> nao pode retornar nada 
+-> deve ser o menor e mais rapida possivel ( para a porra do programa inteiro )
+-> deve ter o atributo ARDUINO_ISR_ATTR (?) 
+--> assim ela funciona na RAM interna do esp32, e nao na memoria flash 
+IRAM é mais rapida, o que é critico para ISR nao ter erros de timming ou crashes 
+-> variaveis utilizadas na ISR devem ser preferivelmente VOLATILE, isso trata erros em registradores com variaveis loucas e de outros tempos 
+
+exemplo de função de callback:
+
+void ARDUINO_ISR_ATTR my_callback () {code }
+DEVEM SER SIMPLES, nao ter funções que escrevem no monitor ou que usam delay, ao invez disso, usar uma flag ou counter (?) para indicar que a ISR foi ativada 
+e depois lidar com isso e com o que precisar no main code ou loop() 
+
+MODE
+é o terceiro argumento do attachInterrupt()
+5 modos diferentes 
+LOW (quando o pin estiver em LOW)
+HIGH ( pin em HIGH ) 
+CHANGE ( sempre quando o pin muda de valor )
+FALLING ( quando o pin vai de HIGH para LOW )
+RISING ( de LOW  para HIGH )
+
+alem da função attachInterrupt(), posso usar de maneira alternativa a func attachInterruptArg() 
+a attachInterruptArg() é utilizada para attach the interrupt to the defined pin usando argumentos, isso significa que eu posso passar argumentos para a função de callback 
+ex: attachInterruptArg(uint8_t pin, void callback_function, void * arg, int mode) 
+-- uint8_t? 
+arg -> ponteiro para o interrupt arguments 
+
+DETACHING/DISABLING AN INTERRUPT FROM A GPIO PIN 
+quando eu quero que o esp32 nao monitore mais um pin, eu uso deatchInterrupt() 
+passo o GPIO como argumento 
+detachInterrupt(digitalPinToInterrupt(interruptPin))
+EXEMPLOS (FAZER EM CASA )
+-- pull up resistor? 
+-- o que cada uma dessas tags nos pins significa?
