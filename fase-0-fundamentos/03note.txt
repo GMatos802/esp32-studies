@@ -1,0 +1,149 @@
+SPARKFUN 
+estudo sobre SPI (Serial Peripheral Interface)
+
+serial peripheral interface 
+-> interface bus, comumente utilizada para mandar data entre microcontroladores e perifericos pequenos como shift registers, sensores e cartões SD
+utiliza linhas de data em clock separadas, junto de uma linha para escolher o device que eu quero me comunicar 
+
+primeiramente, o que existe de errado em Serial ports?
+-- serial ports?
+uma porta serial, como TX e RX, é chamada de assíncrona porque nao tem controle sobre quando a data é mandada ou alguma garantia de que os dois lados estao recebendo/transmitindo na mesma taxa
+desde que computadores normalmente utilizam tudo sincronizado por um unico clock ( the main crystal attached to a computer that drives everything ), isso pode ser um problema quando dois sistemas com diferenças até que pequenas de clock tentam se comunicar um com o outro 
+
+para lidar com esse problema, asynchronous serial connections adicionam um bit extra para start e para stop da comunicação
+cada byte ajuda os devices a se sincronizar com toda a data que chega
+os dois devices precisam concordar com a transmission speed ( como 9600 por segundo ), pequenas diferenças na taxa de transmissao nao sao um problema porque o receiber re-syncs no começo de cada byte 
+
+assincrono funciona ok, mas tem um monte de overhead problems nos dois bits extra que sao mandados para fazer a sincronização, alem de um hardware complexo para send and receive data 
+se a taxa de transmissão nao é a mesma, a data vira lixo no serial
+
+
+a solução síncrona 
+
+SPI é síncrono, isso significa que usa de linhas de data separadas do clock que mantém os dois lados sincronizados 
+o clock é um sinal oscilante que diz ao receiver exatamente quando jogar os bits na data line 
+isso pode ser rising ( low to high ) ou falling ( high to low ) se referindo a borda de clock 
+
+quando o receiver detecta a borda, ele imediatamente olha para a data line para ler o proximo bit 
+como o clock é mandado junto com a data, especificar a velocidade nao é importante, mas mesmo assim, cada device tem uma top speed onde podem operar.
+
+um dos motivos do porque SPI é tao popular é porque o receiving hardware pode ser um simples shift register -> isso é muito mais simples e barato do que um hardware de UART por exemplo 
+
+mudança de nomes 
+MISO - POCI 
+MOSI - PICO 
+SS - CS 
+
+-- 
+mas como mandar data na posição oposta? 
+no SPI, apenas um lado gera o sinal de clock (CLK, SCK for serial clock ) 
+o lado que gera o clock é chamado de controlador (master) 
+e o outro sinal é o periferico (slave) 
+
+sempre tem apenas 1 controlador, mas podem ter varios perifericos 
+
+quando a data é mandado do controlador para um periferico, é mandada pela data linda PICO (MOSI) (peripheral in / controller out), se o periferico precisa mandar uma resposta de volta para o controlador, o controlador vai continuar mandando um numero de clock cycles, e o periferico vai mandar a data pela linha POCI (MISO) (peripheral out / controller in)
+
+o controlador precisa saber quando e a quantidade de data que o periferico precisa retornar, por isso o sinal de clock prearranjado, bem diferente de assincrono, onde quantidades aleatorias de data podem ser mandadas a qualquer momento
+
+SPI é full duplex ( tem linhas diferentes para mandar e receber data ), ou seja, pode mandar e receber data ao mesmo tempo 
+
+CHIP SELECT (CS) ou SLAVE SELECT (SS) 
+
+a linha de CS diz qual o periférico que eu devo acordar e receber/enviar data 
+
+a linha de CS normalmente se mantém high, isso disconecta o periferico do bus do SPI (essa logica é chamada de "active low", utilizada para enable and reset lines ) 
+assim que a data chega no periferico, essa linha CS vai para low, o que ativa o periferico... assim que a comunicação é finalizada, ela volta para high dnv 
+
+multiple peripherals 
+
+sao dois caminhos na hora de conectar multiplos perifericos na bus do SPI 
+
+no geral, cada periferico vai precisar de uma linha de CS especifica ligada ao microcontrolador, para falar com tal periferico, é só jogar essa CS1 pra low e manter as outras CSn em high -> nao queremos dois perif ligados ao mesmo tempo, podem tentar se comunicar usando a mesma linha POCI e gerar garbage data 
+
+daisy-chained, nesse caso só existe 1 linha de CS, e o POCI dos perifericos se ligam ao PICO do outro periferico
+note que nessa configuração os perif ficam interligados, entao para mandar mensagem para 1 perif, precisara mandar data o suficiente to reach all of them 
+é comumente utilizada em output-only situations, onde nao preciso receber nenhuma data em retorno, nesses casos posso deixar a POCI desconectada 
+
+SPI library 
+na programação, tenho que selcionar algumas opções para settar minha interface, essas options precisam dar match nas options do device que eu estou me comunicando 
+checar o device datasheet 
+
+-> MSB first ou LSB first -> setBitOrder() 
+-> rising or falling, the clock can be considered "idle" whein it is high or low -> setDataMode() 
+-> high speed? adjust data rate -> setClockDivider() 
+-> SPI library, use provided SCK, PICO and POCI pins, dedicated CS pin
+
+ANALOG --- clock polarity and clock phase 
+
+em SPI, a main pode selecionar a polaridade de clock e a sua fase 
+o bit CPOL seta a polaridade do sinal durante seu idle state -> o idle state é definido pelo periodo quando CS é high e transiciona para low no inicio da transmissao e quando o CS é low e transiciona para HIGH no fim da transmissao. o bit CPHA seleciona a fase do clock, dependendo do CPHA bit, rising ou falling clock edge é usada para dar sample ou shift na data, a main precisa selecionar esses dois
+-> com CPOL e CPHA, 4 modos de SPI podem ser settados 
+0. CPOL/CPHA = 0 -> logic low, data sampled on rising edge and shifted out in falling edge 
+1. CPOL=0, CPHA=1 -> logic low, data sampled on falling edge and shifted out on rising edge
+2. CPOL=1, CPHA=0 -> logic high, sampled falling shifted rising 
+3. CPOL/CPHA=1 -> logic high, sampled rising shifted falling 
+
+sampled = lidos, shifted out = colocados no barramento 
+
+---------------- 
+CODIGO - biblioteca SPI no arduino 
+#include <SPI.h> 
+
+funções de configuração 
+-> SPISettings: é utilizada para configurar a port SPI para um especifico device de SPI,
+combina 3 parametros (clock speed, bit order e data mode), em um single object que pode ser passado para SPI,beginTransaction()
+pode ser utilizada diretamente no SPI.beginTransaction(), todo os settings sao constantes, o que resulta em um codigo menor e mais rapido... quando algum setting é uma variavel (especialmente o clock speed), criar um objeto SPISettings pode ser mais eficiente
+syntax: SPISettings(speedMaximun, dataOrder, dataMode) 
+SPISettings mySetting (...) 
+parameters: speedMaximun -> a clock speed maxima em Hz, por ex: 20000000 para um periferico de taxa 20MHz
+dataOrder: a ordem de bit para transferencia de data, valores aceitos: MSBFIRST, LSBFIRST 
+dataMode: SPI data mode - SPI_MODE0,1,2,3
+
+nao retorna nada 
+
+-> SPI.begin(): inicializa o bus SPI, configurando SCK, MOSI e SS como outputs (SCK,MOSI low e SS high) e MISO como input, depois de chamar essa função, o device opera como controllador no SPI bus
+syntax: SPI.begin() 
+nenhum parametro e nao retorna nada 
+
+-> SPI.end() - disables o SPI bus, freeing the hardware resources, utilizada quando nao preciso mais da comunicação SPI 
+
+
+
+funções de Transaction control
+-> beginTransaction(): configura o SPI bus com os settings especificados e pega controle exclusivo do bus, deve ser chamada antes de se comunicar com um especifico SPI periferico para ensure proper configuration e prever conflitos com outros device SPI ou interrupts 
+note que SPI.begin() deve ser chamado antes de usar essa função 
+syntax: SPI.beginTransaction(mySettings) 
+parametros: mySettings - SPISettings 
+-> endTransaction(): releases exclusive control of the SPI bus, allowing other libraries or interrupts to use it, deve ser chamada depois que a comunicacao SPI com um periferico é foi completada, tipicalmente depois de settar o CS para HIGH 
+syntax: SPI.endTransaction()
+-> SPI.usingInterrupt(): registra uma interrupção utilizando SPI library para prever conflitos quando utilizamos um ISR junto com SPI 
+quando uma interrupção é registrada usando essa função, o begintransaction vai disable essa interrupt e o endtransaction vai dar enable
+isso protege a data de se corromper 
+syntax: SPI.usingInterrupt(interruptNumber)
+parameters: interruptNumber: o numero de interrupção a ser registrado, pode ser o valor retornado por digitalPinToInterrupt() ou um named interrupt constant, allowed types: int 
+
+
+função de Data transfer 
+-> tranfer: performa um send and receive simultaneo no SPI bus - usa o full duplex do SPI 
+syntax: receivedVal = SPI.transfer(val)
+receiverdVal16 = SPI.transfer16(val16)
+SPI.transfer(buffer, size) 
+byte resposta = SPI.transfer(0x00)
+-- 0x00 é o byte que eu envio, transfer é o byte que recebo 
+sai pelo MOSI e entra pelo MISO 
+essa função que faz o clock funcionar, essencial para comunicação SPI 
+
+parametros: val - byte a ser enviado no bus, type: byte 
+val16 - two-byte a ser enviado no bus, type: uint16_t 
+buffer - array de data a ser transferido, type: byte 
+size - o numero de bytes no buffer a se transferir, type: size_t 
+
+retorna: received byte, two-byte received, pro buffer nada é retornado, a received data fica stored in buffer 
+
+as funções: setBitOrder(), setClockDivider() e setDataMode() estao depreciadas, usar o SPISettings com beginTransactions ao inves delas 
+
+funções adicionais: 
+digitalWrite(CS, low) -> inicio de comunicação com periferico (antes de beginTransaction )
+digitalWrite(CS, high) -> fim de comunicação com periferico ( depois de endTransaction )
+

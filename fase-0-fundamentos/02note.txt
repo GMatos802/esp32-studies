@@ -1,0 +1,263 @@
+SPARKFUN NOTES
+-------------- 
+
+I²C communication protocol 
+
+controller 1 - SDA/SCL1-2 -> peripheral 1 - SDA/SCL1-2
+controller 2 - SDA/SCL2-1 -> peripheral 1 - SDA/SCL2-1 
+
+stands for inter-integrated Circuit 
+allow multiple peripheral digital integrated ciruits ("CHIPS") to communicate with one or more controller chips 
+
+como em SPI (serial peripheral interface) 
+
+- short distance communications within a single device 
+  como interfaces seriais assincronas ( como UART ), só precisa de 2 fios de sinal para troca de informação 
+
+
+/ porque usar I2C?
+
+ao analisar outros tipos de comunicação, como serial, percebemos que existem varios problemas envolvendo ciclos de clock 
+os dois devices precisam ter clocks parecidos, o que nem sempre é possivel -> resulta em dados misturados
+
+UART -> é complexo e come muitos bits para controlar os dados transmitios - a cada 8 bits de data, uns 10 bits de transmission time são necessarios 
+-- transmission data bits? ---------------------- 
+
+outro grande problema é que comunicações assíncronas são limitadas a comunicação de 2 e somente 2 dispositivos ao mesmo tempo 
+-- estudar mais sobre comunicação assíncrona ----------- 
+-- issue: BUS CONTENTION -> quando dois dispositivos tentam caminhar pela mesma linha de dados ao mesmo tempo 
+
+data rate é outro problema, limitação em baudrate 
+
+e SPI? 
+--> estudar mais sobre SPI 
+entender o que falta 
+controller 1 - 5 pinos -> peripheral 1/2 por ex 
+POCI, PICO, SCK, CS1, CS2 
+
+o mais obvio aqui é o tanto de pins que eu preciso pra SPI rodar 
+
+p jogar 1 controller pra 1 peripheral, requer 4 pinos, pra cada peripheral adicional, requer 1 pino a mais 
+
+se torna muito complexo quando precisamos utilizar varios peripheral, conexões se tornam muito complexas 
+
+SPI é bom para conexões high data rate FULL-DUPLEX ( mandar e receber data ao mesmo tempo ) 
+suporta clockrates muito maiores, implementação "facil" em software 
+
+
+
+entra o I2C, o melhor dos dois mundos! 
+apenas 2 pins/fios, que suportam 1008 peripheral devices 
+
+unlike SPI, o I2C pod suportar um multi-controller system, permitindo mais de um controlador para se comunicar com todos os perifericos 
+( os controlladores nao conseguem se comunicar entre si no bus e devem revezar a utilização do mesmo)
+
+data rate - pode comunicar entre 100kHz e 400kHz.
+a cada 8 bits de data que sao mandados, 1 bit de META DATA ( "ACK/NACK") deve ser transmitido tambem 
+
+o hardware que implementa I2C é um pouco mais complexo do que o do SPI, mas menos do que de comunicação assincrona 
+trivialmente implementado em software 
+
+relação entre dispositivos em comm I2C (no bus) - master/slave 
+
+I2C no nivel de hardware ----- 
+
+cada bus I2C consiste em 2 sinais: SDA e SCL 
+SDA ( serial data ): é o sinal de data 
+SCL ( serial clock): é o sinal de clock 
+
+o sinal de clock é sempre gerado pelo atual bus controller 
+para de adequar ao clock, alguns devices podem forçar um clock menor ou preparar data antes do clock chegar, isso se chama "clock stretching" 
+descrito na pagina de protocolo 
+
+diferente de UART ou SPI, I2C bus drivers are "open drain" 
+isso significa que ele pode jogar o sinal correspondente pra low, e nao pra high 
+--- open drain? ------------------------- 
+elimina potential damage to the drivers or excessive power dissipation no sistema 
+
+cada linha de sinal tem um pull-up reistor, para jogar o sinal pra HIGH quando nenhum devic ta jogando ele pra low 
+
+geralmente 4.7 ohms 
+
+SIGNAL LOGIC LEVELS
+como os devices nao jogam os sinais pro high, o i2C permite alguma flexibilidade em conectar devices com diferentes I/O voltages 
+o truque para conectar um device de maior voltagem com um de menor voltagem é concetar o resistor de pull up na menor tensão, só funciona em alguns casos 
+onde o lower of the two system voltages exceeds the high level input voltage of the higher voltage system 
+por ex, um 5V arduino x 3.3V accelerometer 
+dependendo do design do I2C, é melhor usar um conversor pra nao danificar os devices 
+
+Protocol 
+
+com i2c é mais complexa do que UART ou SPI, a sinalização precisa aderir a um protocolo especifico para os devices no bus reconhecerem um I2C valido 
+
+basics 
+mensagens sao quebradas em dois tipos de frame, um frame de address -> onde o controlador indica pro periferico para onde a mensagem esta sendo mandada 
+-> e um frame de data, que é o frame de 8 bits que é mandada do controlador para o periferico e viceversa 
+
+a data é colocada no SDA depois que o SCL vai pra low, e é mandada assim que o SCL volta pra high 
+o tempo entre a borda de clock e o data read/write é definido pelos dispositivos no bus e varia de chip pra chip 
+
+SDA vai pra LOW antes do SCL 
+R/W ACK 
+'1' o controlador esta recebendo data 
+'0' o controlador esta mandando data 
+ACK/NACK -> um '1' nessa posição indica que o address do periferico nao respondeu e esta indisponivel para processar o request 
+STOP CONDITION -> SDA vai pra HIGH depois do SCL 
+
+start condition:
+para iniciar o frame de address, o controlador deixa o SCL high e joga o SDA pra low, isso deixa todos os perifericos perceberem que a transmissão de dados vai começar 
+se dois controladores tentam dar claim no bus ao mesmo tempo, o primeiro device que jogar o SDA pra low primeiro ganha -> fica responsavel pelo bus 
+é possivel exisir um issue em que ocorram starts repetidos 
+
+address frame:
+é o primeiro frame em qualquer sequencia nova de comunicação 
+para uma sequencia de 7bit, o address é clockado como o bit mais significativo, seguido de um R/W bit indicanto read(1) ou write(0) 
+o 9 bit do frame é o NACK/ACK bit (para data ou address) assim que os 9 primeiros bits sao mandados, se o device que esta recebendo a data nao jogar o SDA pra LOW no 9th pulse, pode ser inferido que a communication falhou, ou nao recebeu ou nao parse 
+resta o controlador decidir como proceder 
+
+data framtes: 
+depois do frame de address -> data pode começar a ser transmitida 
+o controlador vai continuar gerando pulsos de clock em um intervalo regular, a data vai sendo colocada no SDA pelo controlador ou pelo periferico, dependendo do bit de R/W 
+o numero de data frames é arbitrario 
+
+stop condition: 
+depois que toda a data foi mandada, o controlador gera um stop condition
+-> é definido por 0->1 no SDA e depois de um 0->1 SCL 
+com o SCL permanecendo high, o valor do SDA nao deve mudar 
+
+adcvanced protocol topics 
+10-bit addresses 
+2 frames para address 
+pode coexistir com 7bit em condições especificas 
+
+repeated start conditions 
+controlador mandar varias mensagens em 1 ida só sem deixar com que outros controladores atrapalhem no bus 
+SDA high SCL low, SCL high SDA low, nao tem condição de parada, a ultima comunicação nao foi finalizada/completada, nesse ponto a nova mensagem pode começar a ser transmitida, o controlador mantém o controle do bus até a SC 
+
+clock stretching 
+em algumas situações, o data rate do controlador vai exceder a habilidade do periferico de lidar com essa data 
+ou porque a data nao esta pronta ainda, ou porque a ultima operação nao foi finalizada 
+nominalmente, todo o clokcing é feito pelo controlador, perifericos apenas colocam data no bus ou tiram data do bus 
+
+
+-------------------- 
+RANDOMNERDTUTORIALS 
+-------------------- 
+o esp32 tem 2 bus I2C que podem servir como master ou slave 
+inter integrated circuit 
+synchronous, multi master, multi slave communication protocol 
+
+esp32 I2C bus interfaces 
+supports:
+standard mode, fast mode, 7/10 bit addressing mode, dual addressing mode -> command registers to controls i2c interfaces -> flexibility 
+
+connecting i2c devices with esp32 
+em algumas placas: SDA - SDI e SCL - SCK 
+SDA e SCL are active low, entao precisam de resistores pullup para jogar pro high, tipicalmente 4.7k p 5V e 2.4k p 3.3V
+
+SDA default 21 
+SCL default 22 
+GND 
+VCC 
+
+cada slave tem seu proprio address
+-> numero hexadecimal que permite o esp32 comunicar com cada device 
+no datasheet do componente geralmente tem o address 
+
+biblioteca <Wire.h> 
+Wire.begin() no setup 
+Wire.beginTransmission(address); 
+Wire.endTransmission 
+SCAN I2C 
+
+use different I2C pins with esp32 
+(change default I2C pins) 
+no esp32 eu posso setar quase que qualquer pin pra ter as capacidades do I2C 
+só preciso setar isso no codigo 
+usar o Wire.h para comunicar com os devices usando I2C 
+
+Wire.begin(I2C_SDA, I2C_SCL), assim eu só preciso jogar meus pins em cada parametro SDA e SCL na função 
+
+porem, se eu estiver utilizando outras bibliotecas para comunicar com sensores, essa mudança de pins pode nao funcionar 
+porque essas outras biblios podem dar overwrite nos meus pins se eu nao passar meu proprio Wire instance quando inicializar 
+
+nesses casos, posso olhar pra .cpp library files e ver como posso passar meu TwoWire parameters 
+
+#define I2C_SDA 33
+#define I2C_SCL 32 
+por exemplo 
+TwoWire I2CBME = TwoWire(0) -> simplesmente cria um I2C bus 
+
+no setup() inicializar a comm i2c 
+I2CBME.begin(SDA,SCL clock frequency) 
+
+depois, inicializar o BME280 com meu address e twowire 
+status = bme.begin(0x76, &I2CBME) 
+
+nesse caso eu nao posso usar wire.begin() 
+
+
+multimple I2C devices using ESP32 
+same bus, different addresses 
+conectar os dois perifericos no esp32 SCL/SDA 
+no codigo, refer to each peripheral by its address 
+Como os dois sensores possuem addresses diferentes, podemos usar o mesmo SDA/SCL lines sem problemas 
+
+e se tiverem o mesmo address? 
+varios sensores do mesmo tipo por ex 
+algumas soluções: 
+  mudar o address I2C do device 
+  usar um I2C multiplexer 
+
+mudar o address -> algumas placas vem com 2 ou mais opções, é só mudar o resistor que liga o address 
+
+ou usar o I2C multiplexer, permite usar varios sensores com mesmo address ao mesmo tempo 
+
+-- 
+usando dois I2C bus interfaces 
+para usar, precisamos criar 2 twowire instances 
+TwoWire I2Cone = TwoWire(0)
+TwoWire I2Ctwo = TwoWire(1) 
+
+iniciar a comm para cada um separadamente, usar SDA/SCL 1 e 2, frequencias diferentes se quiser 
+
+dai eu posso usar metodos do Wire.h para interagir com cada I2C 
+Wire.begin() usa o padrao 
+Wire1.begin(SDA_2, SCL_2, freq) usa outro 
+usando pins diferentes p cada I2C, claro 
+
+usando i2c entre 2 esp32 
+setar 1 pra master e outro pra slave 
+
+conectar os dois em seus respectivos pinos I2C (nao esquecer de conectar no GND tbm) 
+--------- 
+anotações basicas sobre o codigo (biblioteca Wire.h)
+
+sao 5 funções que cobrem 90% dos casos: 
+Wire.begin() -> inicializa como master/slave 
+Wire.beginTransmission(addr) -> abre comunicação com dispositivo no endereço addr 
+Wire.write(data) -> envia byte para o dispositivo 
+Wire.endTransmission() -> fecha e executa transmissão, retorna erro ou 0 se n der 
+Wire.requestFrom(addr, n) -> pede n bytes do dispositivo 
+Wire.available) -> qnts bytes estao disponiveis p ler 
+Wire.read() -> le um byte 
+
+cada transação I2C segue esse fluxo: 
+// escrita (master -> slave) 
+start + endereco 
+Wire.beginTransmission(0x76)
+dado 
+Wire.write(0x01) 
+STOP 
+Wire.endTransmission()
+
+// leitura (slave -> master)
+pede 2 bytes 
+Wire.requestFrom(0x72, 2)
+while (wire.available()) {
+    byte b = wire.read();
+  }
+
+-> START -> endereço -> ACK -> dados -> STOP 
+
+
